@@ -1,17 +1,11 @@
 import csv
 import os
 import logging
-from pathlib import Path
-from dotenv import load_dotenv
 from celery import Celery
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-ROOT = Path(__file__).resolve().parent.parent
-ROOT_ENV = ROOT / '.env'
-if ROOT_ENV.exists():
-    load_dotenv(dotenv_path=ROOT_ENV)
-
+from .config import get_config
 from .database import SessionLocal
 from .models import Product
 
@@ -21,35 +15,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-REDIS_URL = os.getenv("REDIS_URL")
-if not REDIS_URL:
-    raise RuntimeError("REDIS_URL is not set in environment. Set REDIS_URL in .env or the environment variables")
+config = get_config()
 
-celery = Celery(__name__, broker=REDIS_URL, backend=REDIS_URL)
+celery = Celery(__name__, broker=config.redis_url, backend=config.redis_url)
 
 celery.conf.broker_transport_options = {'visibility_timeout': 3600}
-
-BATCH_SIZE_ENV = os.getenv("BATCH_SIZE")
-if BATCH_SIZE_ENV is None:
-    raise RuntimeError("BATCH_SIZE is not set in environment. Set BATCH_SIZE in .env or the environment variables")
-try:
-    BATCH_SIZE = int(BATCH_SIZE_ENV)
-    if BATCH_SIZE <= 0:
-        raise ValueError("BATCH_SIZE must be a positive integer")
-except (ValueError, TypeError) as e:
-    raise RuntimeError(f"Invalid BATCH_SIZE in environment: {e}")
 
 @celery.task(bind=True, name="process_csv_file")
 def process_csv_file(self, file_path: str):
     db: Session = SessionLocal()
-    total_records = 0
     processed_count = 0
+    task_success = False
     
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            total_records = sum(1 for _ in f) - 1
-        
-        logger.info(f"Task Started. Processing {total_records} records from {file_path}")
+        logger.info(f"Task Started. Processing file: {file_path}")
 
         with open(file_path, mode="r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -71,13 +50,13 @@ def process_csv_file(self, file_path: str):
                 }
                 batch.append(product_data)
                 
-                if len(batch) >= BATCH_SIZE:
+                if len(batch) >= config.batch_size:
                     _bulk_upsert(db, batch)
                     processed_count += len(batch)
                     
                     self.update_state(
                         state='PROGRESS',
-                        meta={'current': processed_count, 'total': total_records}
+                        meta={'current': processed_count, 'status': 'Processing'}
                     )
                     batch = []
 
@@ -86,6 +65,7 @@ def process_csv_file(self, file_path: str):
                 processed_count += len(batch)
 
             db.commit()
+            task_success = True
             logger.info(f"Task Completed. Processed {processed_count} records.")
 
     except Exception as e:
@@ -95,10 +75,28 @@ def process_csv_file(self, file_path: str):
     
     finally:
         db.close()
+        
         if os.path.exists(file_path):
-            os.remove(file_path)
+            should_delete = False
+            
+            if config.csv_deletion_policy == "always":
+                should_delete = True
+                logger.info(f"Deleting CSV file (policy: always): {file_path}")
+            elif config.csv_deletion_policy == "success" and task_success:
+                should_delete = True
+                logger.info(f"Deleting CSV file (policy: success, task succeeded): {file_path}")
+            elif config.csv_deletion_policy == "never":
+                logger.info(f"Keeping CSV file (policy: never): {file_path}")
+            else:
+                logger.info(f"Keeping CSV file (policy: {config.csv_deletion_policy}, task_success: {task_success}): {file_path}")
+            
+            if should_delete:
+                try:
+                    os.remove(file_path)
+                except Exception as e:
+                    logger.warning(f"Failed to delete CSV file {file_path}: {e}")
 
-    return {"status": "Completed", "total": total_records}
+    return {"status": "Completed", "total": processed_count}
 
 
 def _bulk_upsert(db: Session, batch_data: list):
