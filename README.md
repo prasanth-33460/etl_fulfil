@@ -1,0 +1,1 @@
+install the required through pip install -r requirements.txt before that create a venv by python3 -m venv .venv and source .venv/bin/activate.
