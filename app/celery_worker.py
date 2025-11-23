@@ -65,6 +65,13 @@ def process_csv_file(self, file_path: str):
                 batch.append(product_data)
                 
                 if len(batch) >= config.batch_size:
+                    self.update_state(state='PROGRESS', meta={
+                        'current': processed_count,
+                        'total': total_records,
+                        'rows_processed': processed_count,
+                        'status': 'Saving batch to DB...'
+                    })
+                    
                     _bulk_upsert(db, batch)
                     processed_count += len(batch)
                     
@@ -74,21 +81,39 @@ def process_csv_file(self, file_path: str):
                             'current': processed_count,
                             'total': total_records,
                             'rows_processed': processed_count,
-                            'status': 'Processing'
+                            'status': 'Processing CSV...'
                         }
                     )
                     batch = []
 
             if batch:
+                self.update_state(state='PROGRESS', meta={
+                    'current': processed_count,
+                    'total': total_records,
+                    'rows_processed': processed_count,
+                    'status': 'Saving final batch...'
+                })
                 _bulk_upsert(db, batch)
                 processed_count += len(batch)
 
+            self.update_state(state='PROGRESS', meta={
+                'current': processed_count,
+                'total': total_records,
+                'rows_processed': processed_count,
+                'status': 'Finalizing transaction...'
+            })
             db.commit()
             task_success = True
             logger.info(f"Task Completed. Processed {processed_count} records.")
 
             # Trigger Webhooks
             try:
+                self.update_state(state='PROGRESS', meta={
+                    'current': processed_count,
+                    'total': total_records,
+                    'rows_processed': processed_count,
+                    'status': 'Triggering webhooks...'
+                })
                 # Only trigger active webhooks
                 webhooks = db.query(Webhook).filter(Webhook.is_active == True).all()
                 payload = {
@@ -115,6 +140,12 @@ def process_csv_file(self, file_path: str):
         db.close()
         
         if os.path.exists(file_path):
+            self.update_state(state='PROGRESS', meta={
+                'current': processed_count,
+                'total': total_records if 'total_records' in locals() else 0,
+                'rows_processed': processed_count,
+                'status': 'Cleaning up...'
+            })
             should_delete = False
             
             if config.csv_deletion_policy == "always":
