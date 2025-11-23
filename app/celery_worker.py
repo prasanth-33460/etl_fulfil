@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from .config import get_config
 from .database import SessionLocal
 from .models import Product, Webhook
+from .utils import validate_webhook_url
 import requests
 
 logging.basicConfig(
@@ -37,11 +38,10 @@ def process_csv_file(self, file_path: str):
             'status': 'Calculating total records...'
         })
 
-        # Calculate total records first
         total_records = 0
         with open(file_path, mode="r", encoding="utf-8") as f:
-            total_records = sum(1 for _ in f) - 1  # Subtract header
-        
+            total_records = sum(1 for _ in f) - 1
+                    
         logger.info(f"Total records to process: {total_records}")
 
         with open(file_path, mode="r", encoding="utf-8") as f:
@@ -106,7 +106,6 @@ def process_csv_file(self, file_path: str):
             task_success = True
             logger.info(f"Task Completed. Processed {processed_count} records.")
 
-            # Trigger Webhooks
             try:
                 self.update_state(state='PROGRESS', meta={
                     'current': processed_count,
@@ -114,7 +113,6 @@ def process_csv_file(self, file_path: str):
                     'rows_processed': processed_count,
                     'status': 'Triggering webhooks...'
                 })
-                # Only trigger active webhooks
                 webhooks = db.query(Webhook).filter(Webhook.is_active == True).all()
                 payload = {
                     "event": "import_completed",
@@ -124,6 +122,7 @@ def process_csv_file(self, file_path: str):
                 }
                 for webhook in webhooks:
                     try:
+                        validate_webhook_url(webhook.url)
                         requests.post(webhook.url, json=payload, timeout=5)
                         logger.info(f"Webhook sent to {webhook.url}")
                     except Exception as w_err:

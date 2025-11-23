@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- 
+      NOTE: This dashboard uses in-browser Babel compilation for simplicity in this assignment.
+      For production, this should be replaced with a pre-compiled React bundle.
+    -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Importer Dashboard (React)</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #f3f4f6; font-family: sans-serif; }
+        .card { background: white; padding: 1.5rem; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 1.5rem; }
+        .btn { padding: 0.5rem 1rem; border-radius: 0.25rem; font-weight: 500; transition: all 0.2s; }
+        .btn-primary { background-color: #3b82f6; color: white; }
+        .btn-primary:hover { background-color: #2563eb; }
+        .btn-danger { background-color: #ef4444; color: white; }
+        .btn-danger:hover { background-color: #dc2626; }
+        .btn-warning { background-color: #f59e0b; color: white; }
+        .btn-success { background-color: #10b981; color: white; }
+        .input { border: 1px solid #d1d5db; padding: 0.5rem; border-radius: 0.25rem; width: 100%; }
+        .table { width: 100%; border-collapse: collapse; }
+        .table th, .table td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #e5e7eb; }
+        .progress-bar { height: 1rem; background-color: #e5e7eb; border-radius: 9999px; overflow: hidden; }
+        .progress-fill { height: 100%; background-color: #3b82f6; transition: width 0.5s ease; }
+    </style>
+</head>
+<body>
+    <div id="root" class="p-10 text-center text-gray-500">
+        Loading Dashboard... <br>
+        <small>(If this message persists, JavaScript may be disabled or blocked)</small>
+    </div>
+
+    <!-- Error Handler -->
+    <script>
+        window.onerror = function(message, source, lineno, colno, error) {
+            document.getElementById('root').innerHTML = `
+                <div style="color: red; padding: 20px; border: 1px solid red; background: #fff0f0; border-radius: 8px; text-align: left;">
+                    <h3 style="margin-top: 0;">Application Error</h3>
+                    <p><strong>Message:</strong> ${message}</p>
+                    <p><strong>Location:</strong> ${source}:${lineno}:${colno}</p>
+                    <pre style="background: #eee; padding: 10px; overflow: auto;">${error && error.stack ? error.stack : ''}</pre>
+                </div>
+            `;
+        };
+    </script>
+
+    <script type="text/babel" data-presets="env,react">
+        const { useState, useEffect, useCallback } = React;
+
+        // API Base URL configuration
+        // Leave empty to use the current origin (relative paths)
+        // Or set to a full URL like "http://localhost:8000" if the API is hosted elsewhere
+        const API_URL = '';
+
+        // --- Components ---
+
+        const Toast = ({ message, type, onClose }) => {
+            useEffect(() => {
+                const timer = setTimeout(onClose, 3000);
+                return () => clearTimeout(timer);
+            }, [onClose]);
+
+            const colors = {
+                success: 'bg-green-500',
+                error: 'bg-red-500',
+                info: 'bg-blue-500'
+            };
+
+            return (
+                <div className={`fixed top-4 right-4 ${colors[type] || 'bg-gray-800'} text-white px-6 py-3 rounded shadow-lg z-50 animate-bounce`}>
+                    {message}
+                </div>
+            );
+        };
+
+        const UploadSection = ({ onUploadSuccess, setNotification }) => {
+            const [file, setFile] = useState(null);
+            const [uploading, setUploading] = useState(false);
+            const [progress, setProgress] = useState(null);
+            const [taskId, setTaskId] = useState(null);
+
+            useEffect(() => {
+                let interval;
+                if (taskId) {
+                    interval = setInterval(async () => {
+                        try {
+                            // Add timestamp to prevent caching
+                            const res = await fetch(`${API_URL}/upload/${taskId}?t=${Date.now()}`);
+                            const data = await res.json();
+                            setProgress(data);
+
+                            if (data.status === 'COMPLETED') {
+                                clearInterval(interval);
+                                setUploading(false);
+                                setTaskId(null);
+                                setNotification({ message: 'Import Completed Successfully!', type: 'success' });
+                                onUploadSuccess();
+                            } else if (data.status === 'FAILED') {
+                                clearInterval(interval);
+                                setUploading(false);
+                                setTaskId(null);
+                                setNotification({ message: `Import Failed: ${data.error || 'Unknown error'}`, type: 'error' });
+                            }
+                        } catch (e) {
+                            console.error(e);
+                        }
+                    }, 1000);
+                }
+                return () => clearInterval(interval);
+            }, [taskId, onUploadSuccess]);
+
+            const handleUpload = async () => {
+                if (!file) return setNotification({ message: 'Please select a file', type: 'error' });
+
+                const formData = new FormData();
+                formData.append('file', file);
+                setUploading(true);
+                setProgress({ state: 'STARTING', progress: { current: 0 } });
+
+                try {
+                    const res = await fetch(`${API_URL}/upload/`, { method: 'POST', body: formData });
+                    const data = await res.json();
+                    if (res.ok) {
+                        setTaskId(data.task_id);
+                    } else {
+                        throw new Error(data.detail || 'Upload failed');
+                    }
+                } catch (e) {
+                    setUploading(false);
+                    setNotification({ message: e.message, type: 'error' });
+                }
+            };
+
+            return (
+                <div className="card">
+                    <h2 className="text-xl font-bold mb-4">1. Upload CSV</h2>
+                    <div className="flex gap-4 items-center mb-4">
+                        <input type="file" accept=".csv" onChange={e => setFile(e.target.files[0])} className="input max-w-xs" />
+                        <button onClick={handleUpload} disabled={uploading} className={`btn btn-primary ${uploading ? 'opacity-50' : ''}`}>
+                            {uploading ? 'Processing...' : 'Upload & Process'}
+                        </button>
+                    </div>
+                    
+                    {progress && (
+                        <div className="mt-4 p-4 bg-gray-50 rounded">
+                            <div className="flex justify-between mb-2 text-sm text-gray-600">
+                                <span>Task ID: {taskId}</span>
+                                <span>{progress.details?.processed_rows || 0} / {progress.details?.total_rows || '?'} records</span>
+                            </div>
+                            
+                            <div className="progress-bar relative h-6 bg-gray-200 rounded-full overflow-hidden">
+                                <div 
+                                    className={`progress-fill h-full transition-all duration-500 ${
+                                        progress.status === 'PENDING' || progress.status === 'STARTING' 
+                                            ? 'w-full animate-pulse bg-blue-300' 
+                                            : 'bg-blue-600'
+                                    }`}
+                                    style={{ 
+                                        width: (progress.status === 'PENDING' || progress.status === 'STARTING') 
+                                            ? '100%' 
+                                            : `${Math.max(5, progress.progress_percent || 0)}%` 
+                                    }}
+                                ></div>
+                                
+                                {/* Text inside the bar */}
+                                <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white drop-shadow-md">
+                                    {progress.details?.message || progress.status} 
+                                    {progress.progress_percent > 0 && ` (${progress.progress_percent}%)`}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const WebhookSection = ({ setNotification }) => {
+            const [webhooks, setWebhooks] = useState([]);
+            const [newUrl, setNewUrl] = useState('');
+
+            const loadWebhooks = useCallback(async () => {
+                const res = await fetch(`${API_URL}/webhooks/`);
+                const data = await res.json();
+                setWebhooks(data);
+            }, []);
+
+            useEffect(() => { loadWebhooks(); }, [loadWebhooks]);
+
+            const addWebhook = async () => {
+                if (!newUrl) return;
+                try {
+                    await fetch(`${API_URL}/webhooks/`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: newUrl, is_active: true, event_type: 'import.completed' })
+                    });
+                    setNewUrl('');
+                    loadWebhooks();
+                    setNotification({ message: 'Webhook added', type: 'success' });
+                } catch (e) {
+                    setNotification({ message: 'Failed to add webhook', type: 'error' });
+                }
+            };
+
+            const toggleWebhook = async (webhook) => {
+                await fetch(`${API_URL}/webhooks/${webhook.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_active: !webhook.is_active })
+                });
+                loadWebhooks();
+            };
+
+            const deleteWebhook = async (id) => {
+                if (!confirm('Delete webhook?')) return;
+                await fetch(`${API_URL}/webhooks/${id}`, { method: 'DELETE' });
+                loadWebhooks();
+                setNotification({ message: 'Webhook deleted', type: 'info' });
+            };
+
+            const testWebhook = async (id) => {
+                try {
+                    const res = await fetch(`${API_URL}/webhooks/${id}/test`, { method: 'POST' });
+                    const data = await res.json();
+                    if (data.status === 'success') {
+                        setNotification({ message: `Test successful! Server responded with HTTP ${data.status_code}`, type: 'success' });
+                    } else {
+                        setNotification({ message: `Test failed: ${data.detail}`, type: 'error' });
+                    }
+                } catch (e) {
+                    setNotification({ message: e.message, type: 'error' });
+                }
+            };
+
+            return (
+                <div className="card">
+                    <h2 className="text-xl font-bold mb-2">2. Webhooks</h2>
+                    <p className="text-sm text-gray-600 mb-4">
+                        Configure webhooks to receive real-time notifications when a CSV import is completed.
+                        The "Test" button sends a sample notification to verify connectivity.
+                    </p>
+                    <div className="flex gap-4 mb-4">
+                        <input 
+                            type="text" 
+                            value={newUrl} 
+                            onChange={e => setNewUrl(e.target.value)} 
+                            placeholder="https://example.com/webhook" 
+                            className="input"
+                        />
+                        <button onClick={addWebhook} className="btn btn-primary whitespace-nowrap">Add Webhook</button>
+                    </div>
+                    <div className="space-y-2">
+                        {webhooks.map(w => (
+                            <div key={w.id} className="flex justify-between items-center p-3 bg-gray-50 rounded border border-gray-200">
+                                <div>
+                                    <div className="font-mono text-sm break-all">{w.url}</div>
+                                    <div className="text-xs text-gray-500 mt-1">
+                                        Event: {w.event_type} | 
+                                        Status: <span className={w.is_active ? 'text-green-600 font-bold' : 'text-red-600 font-bold'}>
+                                            {w.is_active ? 'Active' : 'Inactive'}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => testWebhook(w.id)} className="btn btn-primary text-xs">Test</button>
+                                    <button onClick={() => toggleWebhook(w)} className="btn btn-warning text-xs">
+                                        {w.is_active ? 'Disable' : 'Enable'}
+                                    </button>
+                                    <button onClick={() => deleteWebhook(w.id)} className="btn btn-danger text-xs">Delete</button>
+                                </div>
+                            </div>
+                        ))}
+                        {webhooks.length === 0 && <p className="text-gray-500 text-center">No webhooks configured.</p>}
+                    </div>
+                </div>
+            );
+        };
+
+        const ProductSection = ({ refreshTrigger, setNotification }) => {
+            const [products, setProducts] = useState([]);
+            const [filters, setFilters] = useState({ sku: '', name: '', is_active: '' });
+            const [page, setPage] = useState(0);
+            const [editingProduct, setEditingProduct] = useState(null);
+            const [creatingProduct, setCreatingProduct] = useState(false);
+            const [newProduct, setNewProduct] = useState({ sku: '', name: '', description: '', is_active: true });
+            const LIMIT = 10;
+
+            const loadProducts = useCallback(async () => {
+                const params = new URLSearchParams({
+                    skip: page * LIMIT,
+                    limit: LIMIT,
+                    ...filters
+                });
+                // Remove empty filters
+                ['sku', 'name', 'is_active'].forEach(key => {
+                    if (!params.get(key)) params.delete(key);
+                });
+
+                const res = await fetch(`${API_URL}/products/?${params}`);
+                const data = await res.json();
+                setProducts(data);
+            }, [page, filters, refreshTrigger]);
+
+            useEffect(() => { loadProducts(); }, [loadProducts]);
+
+            const handleDelete = async (id) => {
+                if (!confirm('Delete product?')) return;
+                await fetch(`${API_URL}/products/${id}`, { method: 'DELETE' });
+                loadProducts();
+                setNotification({ message: 'Product deleted', type: 'info' });
+            };
+
+            const handleDeleteAll = async () => {
+                if (!confirm('WARNING: Delete ALL products?')) return;
+                await fetch(`${API_URL}/products/`, { method: 'DELETE' });
+                loadProducts();
+                setNotification({ message: 'All products deleted', type: 'info' });
+            };
+
+            const handleCreate = async (e) => {
+                e.preventDefault();
+                try {
+                    const res = await fetch(`${API_URL}/products/`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(newProduct)
+                    });
+                    if (!res.ok) {
+                        const data = await res.json();
+                        throw new Error(data.detail || 'Failed to create product');
+                    }
+                    setCreatingProduct(false);
+                    setNewProduct({ sku: '', name: '', description: '', is_active: true });
+                    loadProducts();
+                    setNotification({ message: 'Product created successfully', type: 'success' });
+                } catch (err) {
+                    setNotification({ message: err.message, type: 'error' });
+                }
+            };
+
+            const handleSave = async (e) => {
+                e.preventDefault();
+                const { id, name, description, is_active } = editingProduct;
+                try {
+                    await fetch(`${API_URL}/products/${id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name, description, is_active })
+                    });
+                    setEditingProduct(null);
+                    loadProducts();
+                    setNotification({ message: 'Product updated', type: 'success' });
+                } catch (err) {
+                    setNotification({ message: 'Update failed', type: 'error' });
+                }
+            };
+
+            return (
+                <div className="card">
+                    <h2 className="text-xl font-bold mb-4">3. Products</h2>
+                    
+                    {/* Filters */}
+                    <div className="flex flex-wrap gap-2 mb-4">
+                        <button onClick={() => setCreatingProduct(true)} className="btn btn-success mr-2">+ New Product</button>
+                        <input 
+                            placeholder="Filter SKU" 
+                            className="input w-32" 
+                            value={filters.sku}
+                            onChange={e => setFilters({...filters, sku: e.target.value})}
+                        />
+                        <input 
+                            placeholder="Filter Name" 
+                            className="input w-32" 
+                            value={filters.name}
+                            onChange={e => setFilters({...filters, name: e.target.value})}
+                        />
+                        <select 
+                            className="input w-32"
+                            value={filters.is_active}
+                            onChange={e => setFilters({...filters, is_active: e.target.value})}
+                        >
+                            <option value="">All Status</option>
+                            <option value="true">Active</option>
+                            <option value="false">Inactive</option>
+                        </select>
+                        <button onClick={() => setPage(0)} className="btn btn-primary">Filter</button>
+                        <div className="flex-grow"></div>
+                        <button onClick={handleDeleteAll} className="btn btn-danger">Delete All</button>
+                    </div>
+
+                    {/* Table */}
+                    <div className="overflow-x-auto">
+                        <table className="table">
+                            <thead>
+                                <tr className="bg-gray-100">
+                                    <th>SKU</th>
+                                    <th>Name</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {products.map(p => (
+                                    <tr key={p.id} className="hover:bg-gray-50">
+                                        <td>{p.sku}</td>
+                                        <td>{p.name}</td>
+                                        <td>
+                                            <span className={`px-2 py-1 rounded text-xs ${p.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                                {p.is_active ? 'Active' : 'Inactive'}
+                                            </span>
+                                        </td>
+                                        <td className="flex gap-2">
+                                            <button onClick={() => setEditingProduct(p)} className="btn btn-primary text-xs">Edit</button>
+                                            <button onClick={() => handleDelete(p.id)} className="btn btn-danger text-xs">Delete</button>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {products.length === 0 && (
+                                    <tr><td colSpan="4" className="text-center text-gray-500 py-4">No products found</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Pagination */}
+                    <div className="flex justify-center items-center gap-4 mt-4">
+                        <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="btn btn-primary disabled:opacity-50">Previous</button>
+                        <span className="font-mono">Page {page + 1}</span>
+                        <button onClick={() => setPage(p => p + 1)} disabled={products.length < LIMIT} className="btn btn-primary disabled:opacity-50">Next</button>
+                    </div>
+
+                    {/* Create Modal */}
+                    {creatingProduct && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white p-6 rounded-lg w-96 shadow-xl">
+                                <h3 className="text-lg font-bold mb-4">Create New Product</h3>
+                                <form onSubmit={handleCreate}>
+                                    <div className="mb-3">
+                                        <label className="block text-sm font-bold mb-1">SKU *</label>
+                                        <input 
+                                            className="input" 
+                                            required
+                                            value={newProduct.sku} 
+                                            onChange={e => setNewProduct({...newProduct, sku: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="mb-3">
+                                        <label className="block text-sm font-bold mb-1">Name *</label>
+                                        <input 
+                                            className="input" 
+                                            required
+                                            value={newProduct.name} 
+                                            onChange={e => setNewProduct({...newProduct, name: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="mb-3">
+                                        <label className="block text-sm font-bold mb-1">Description</label>
+                                        <textarea 
+                                            className="input" 
+                                            value={newProduct.description} 
+                                            onChange={e => setNewProduct({...newProduct, description: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="mb-4">
+                                        <label className="block text-sm font-bold mb-1">Status</label>
+                                        <select 
+                                            className="input"
+                                            value={newProduct.is_active}
+                                            onChange={e => setNewProduct({...newProduct, is_active: e.target.value === 'true'})}
+                                        >
+                                            <option value="true">Active</option>
+                                            <option value="false">Inactive</option>
+                                        </select>
+                                    </div>
+                                    <div className="flex justify-end gap-2">
+                                        <button type="button" onClick={() => setCreatingProduct(false)} className="btn bg-gray-500 text-white hover:bg-gray-600">Cancel</button>
+                                        <button type="submit" className="btn btn-success">Create</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Edit Modal */}
+                    {editingProduct && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white p-6 rounded-lg w-96 shadow-xl">
+                                <h3 className="text-lg font-bold mb-4">Edit Product</h3>
+                                <form onSubmit={handleSave}>
+                                    <div className="mb-3">
+                                        <label className="block text-sm font-bold mb-1">Name</label>
+                                        <input 
+                                            className="input" 
+                                            value={editingProduct.name} 
+                                            onChange={e => setEditingProduct({...editingProduct, name: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="mb-3">
+                                        <label className="block text-sm font-bold mb-1">Description</label>
+                                        <textarea 
+                                            className="input" 
+                                            value={editingProduct.description || ''} 
+                                            onChange={e => setEditingProduct({...editingProduct, description: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="mb-4">
+                                        <label className="block text-sm font-bold mb-1">Status</label>
+                                        <select 
+                                            className="input"
+                                            value={editingProduct.is_active}
+                                            onChange={e => setEditingProduct({...editingProduct, is_active: e.target.value === 'true'})}
+                                        >
+                                            <option value="true">Active</option>
+                                            <option value="false">Inactive</option>
+                                        </select>
+                                    </div>
+                                    <div className="flex justify-end gap-2">
+                                        <button type="button" onClick={() => setEditingProduct(null)} className="btn bg-gray-500 text-white hover:bg-gray-600">Cancel</button>
+                                        <button type="submit" className="btn btn-success">Save Changes</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [notification, setNotification] = useState(null);
+            const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+            return (
+                <div className="max-w-5xl mx-auto p-6">
+                    <h1 className="text-3xl font-bold mb-8 text-gray-800">Product Importer Dashboard</h1>
+                    
+                    {notification && (
+                        <Toast 
+                            message={notification.message} 
+                            type={notification.type} 
+                            onClose={() => setNotification(null)} 
+                        />
+                    )}
+
+                    <UploadSection 
+                        setNotification={setNotification} 
+                        onUploadSuccess={() => setRefreshTrigger(n => n + 1)} 
+                    />
+                    
+                    <WebhookSection setNotification={setNotification} />
+                    
+                    <ProductSection 
+                        refreshTrigger={refreshTrigger} 
+                        setNotification={setNotification} 
+                    />
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

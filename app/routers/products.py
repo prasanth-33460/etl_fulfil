@@ -15,7 +15,6 @@ MAX_PRODUCT_PAGE_SIZE = 1000
 
 @router.post("/", response_model=schemas.ProductResponse, status_code=201)
 def create_product(product: schemas.ProductCreate, db: Session = Depends(database.get_db)):
-    # Check if SKU already exists
     existing_product = db.query(models.Product).filter(models.Product.sku == product.sku).first()
     if existing_product:
         raise HTTPException(status_code=400, detail="Product with this SKU already exists")

@@ -65,8 +65,7 @@ def get_upload_status(task_id: str):
         
         response["details"] = {
             "processed_rows": data.get("rows_processed", 0),
-            "bytes_read": current,
-            "total_bytes": total,
+            "total_rows": total,
             "message": data.get("status", "Processing...")
         }
     
