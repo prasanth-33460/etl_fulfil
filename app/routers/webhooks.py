@@ -50,9 +50,17 @@ def test_webhook(webhook_id: int, db: Session = Depends(database.get_db)):
         raise HTTPException(status_code=404, detail="Webhook not found")
     
     try:
+        # Send a sample payload that mimics the actual event
+        sample_payload = {
+            "event": "import_completed",
+            "file_path": "test_sample.csv",
+            "processed_count": 42,
+            "status": "success",
+            "is_test": True
+        }
         response = requests.post(
             webhook.url, 
-            json={"event": "test_ping", "message": "This is a test webhook from Product Importer"},
+            json=sample_payload,
             timeout=5
         )
         return {
