@@ -13,6 +13,19 @@ router = APIRouter(
 
 MAX_PRODUCT_PAGE_SIZE = 1000
 
+@router.post("/", response_model=schemas.ProductResponse, status_code=201)
+def create_product(product: schemas.ProductCreate, db: Session = Depends(database.get_db)):
+    # Check if SKU already exists
+    existing_product = db.query(models.Product).filter(models.Product.sku == product.sku).first()
+    if existing_product:
+        raise HTTPException(status_code=400, detail="Product with this SKU already exists")
+    
+    db_product = models.Product(**product.model_dump())
+    db.add(db_product)
+    db.commit()
+    db.refresh(db_product)
+    return db_product
+
 @router.get("/", response_model=list[schemas.ProductResponse])
 def list_products(
     skip: int = Query(0, ge=0), 
