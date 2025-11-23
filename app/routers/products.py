@@ -64,4 +64,4 @@ def delete_all_products(db: Session = Depends(database.get_db)):
         return {"message": f"Deleted {num_deleted} products"}
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
