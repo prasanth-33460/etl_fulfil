@@ -60,9 +60,10 @@ def get_upload_status(task_id: str):
             response["progress_percent"] = round((current / total) * 100, 2)
         
         response["details"] = {
-            "processed_rows": data.get("rows_processed", "Calculating..."),
+            "processed_rows": data.get("rows_processed", 0),
             "bytes_read": current,
-            "total_bytes": total
+            "total_bytes": total,
+            "message": data.get("status", "Processing...")
         }
     
     elif task_result.state == 'SUCCESS':

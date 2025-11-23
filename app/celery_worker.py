@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from .config import get_config
 from .database import SessionLocal
-from .models import Product
+from .models import Product, Webhook
+import requests
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,6 +30,19 @@ def process_csv_file(self, file_path: str):
     
     try:
         logger.info(f"Task Started. Processing file: {file_path}")
+
+        self.update_state(state='PROGRESS', meta={
+            'current': 0,
+            'total': 0,
+            'status': 'Calculating total records...'
+        })
+
+        # Calculate total records first
+        total_records = 0
+        with open(file_path, mode="r", encoding="utf-8") as f:
+            total_records = sum(1 for _ in f) - 1  # Subtract header
+        
+        logger.info(f"Total records to process: {total_records}")
 
         with open(file_path, mode="r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -56,7 +70,12 @@ def process_csv_file(self, file_path: str):
                     
                     self.update_state(
                         state='PROGRESS',
-                        meta={'current': processed_count, 'status': 'Processing'}
+                        meta={
+                            'current': processed_count,
+                            'total': total_records,
+                            'rows_processed': processed_count,
+                            'status': 'Processing'
+                        }
                     )
                     batch = []
 
@@ -67,6 +86,25 @@ def process_csv_file(self, file_path: str):
             db.commit()
             task_success = True
             logger.info(f"Task Completed. Processed {processed_count} records.")
+
+            # Trigger Webhooks
+            try:
+                # Only trigger active webhooks
+                webhooks = db.query(Webhook).filter(Webhook.is_active == True).all()
+                payload = {
+                    "event": "import_completed",
+                    "file_path": file_path,
+                    "processed_count": processed_count,
+                    "status": "success"
+                }
+                for webhook in webhooks:
+                    try:
+                        requests.post(webhook.url, json=payload, timeout=5)
+                        logger.info(f"Webhook sent to {webhook.url}")
+                    except Exception as w_err:
+                        logger.warning(f"Failed to send webhook to {webhook.url}: {w_err}")
+            except Exception as e:
+                logger.error(f"Error processing webhooks: {e}")
 
     except Exception as e:
         logger.error(f"Task Failed: {str(e)}", exc_info=True)
@@ -102,6 +140,9 @@ def process_csv_file(self, file_path: str):
 def _bulk_upsert(db: Session, batch_data: list):
     if not batch_data:
         return
+
+    unique_batch = {item['sku']: item for item in batch_data}.values()
+    batch_data = list(unique_batch)
 
     stmt = insert(Product).values(batch_data)
     

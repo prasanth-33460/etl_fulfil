@@ -22,3 +22,25 @@ class ProductResponse(ProductBase):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class WebhookBase(BaseModel):
+    url: str = Field(..., description="Webhook URL")
+    description: Optional[str] = None
+    event_type: str = "import.completed"
+    is_active: bool = True
+
+class WebhookCreate(WebhookBase):
+    pass
+
+class WebhookUpdate(BaseModel):
+    url: Optional[str] = None
+    description: Optional[str] = None
+    event_type: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class WebhookResponse(WebhookBase):
+    id: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
