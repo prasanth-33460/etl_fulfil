@@ -71,3 +71,4 @@ def delete_all_products(db: Session = Depends(database.get_db)):
         db.rollback()
         logger.exception("Failed to delete all products", exc_info=e)
         raise HTTPException(status_code=500, detail="Failed to delete products")
+

@@ -44,4 +44,6 @@ def health_check(db: Session = Depends(database.get_db)):
         db.execute(text("SELECT 1"))
         return {"status": "healthy", "database": "connected", "worker": "ready"}
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Database not reachable: {str(e)}")
+        raise HTTPException(
+            status_code=503, detail=f"Database not reachable: {str(e)}"
+        ) from e
