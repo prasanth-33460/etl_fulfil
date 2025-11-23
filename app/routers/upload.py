@@ -1,8 +1,12 @@
 import shutil
 import os
+import uuid
+import logging
 from fastapi import APIRouter, UploadFile, File, HTTPException, status
 from celery.result import AsyncResult
 from app.celery_worker import process_csv_file, celery
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/upload",
@@ -17,7 +21,7 @@ async def upload_file(file: UploadFile = File(...)):
             detail="Invalid file format. Only .csv files are supported."
         )
 
-    temp_filename = f"temp_{file.filename}"
+    temp_filename = f"temp_{uuid.uuid4()}.csv"
     
     try:
         with open(temp_filename, "wb") as buffer:
@@ -30,7 +34,7 @@ async def upload_file(file: UploadFile = File(...)):
     except Exception as e:
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
-        raise HTTPException(status_code=500, detail=f"Could not save file: {str(e)}")
+        raise HTTPException(status_code=500, detail="Could not save file") from e
 
     task = process_csv_file.delay(temp_filename)
 
@@ -73,6 +77,27 @@ def get_upload_status(task_id: str):
         
     elif task_result.state == 'FAILURE':
         response["status"] = "FAILED"
-        response["error"] = str(task_result.info)
+        
+        try:
+            task_id = getattr(task_result, "id", None)
+        except Exception:
+            task_id = None
+
+        if task_id:
+            logger.error(
+                "Upload task %s failed with error: %r",
+                task_id,
+                task_result.info,
+                exc_info=True,
+            )
+        else:
+            logger.error(
+                "Upload task failed with error: %r",
+                task_result.info,
+                exc_info=True,
+            )
+
+        response["error"] = "An error occurred while processing your upload. Please try again later."
+        response["error_code"] = "UPLOAD_TASK_FAILED"
 
     return response

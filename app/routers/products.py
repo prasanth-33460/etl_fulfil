@@ -1,17 +1,22 @@
 from typing import Optional
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app import models, schemas, database
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/products",
     tags=["Product Management"]
 )
 
+MAX_PRODUCT_PAGE_SIZE = 1000
+
 @router.get("/", response_model=list[schemas.ProductResponse])
 def list_products(
-    skip: int = 0, 
-    limit: int = 100, 
+    skip: int = Query(0, ge=0), 
+    limit: int = Query(100, ge=1, le=MAX_PRODUCT_PAGE_SIZE), 
     sku: Optional[str] = None,
     name: Optional[str] = None,
     is_active: Optional[bool] = None,
@@ -64,4 +69,5 @@ def delete_all_products(db: Session = Depends(database.get_db)):
         return {"message": f"Deleted {num_deleted} products"}
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to delete all products", exc_info=e)
+        raise HTTPException(status_code=500, detail="Failed to delete products")

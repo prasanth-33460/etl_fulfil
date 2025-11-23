@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 import os
 
 from app import models, database
@@ -40,7 +41,7 @@ def root():
 @app.get("/health")
 def health_check(db: Session = Depends(database.get_db)):
     try:
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         return {"status": "healthy", "database": "connected", "worker": "ready"}
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Database not reachable: {str(e)}")
