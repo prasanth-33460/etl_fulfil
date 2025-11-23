@@ -37,11 +37,10 @@ def process_csv_file(self, file_path: str):
             'status': 'Calculating total records...'
         })
 
-        # Calculate total records first
         total_records = 0
         with open(file_path, mode="r", encoding="utf-8") as f:
-            total_records = sum(1 for _ in f) - 1  # Subtract header
-        
+            total_records = sum(1 for _ in f) - 1
+                    
         logger.info(f"Total records to process: {total_records}")
 
         with open(file_path, mode="r", encoding="utf-8") as f:
@@ -106,7 +105,6 @@ def process_csv_file(self, file_path: str):
             task_success = True
             logger.info(f"Task Completed. Processed {processed_count} records.")
 
-            # Trigger Webhooks
             try:
                 self.update_state(state='PROGRESS', meta={
                     'current': processed_count,
@@ -114,7 +112,6 @@ def process_csv_file(self, file_path: str):
                     'rows_processed': processed_count,
                     'status': 'Triggering webhooks...'
                 })
-                # Only trigger active webhooks
                 webhooks = db.query(Webhook).filter(Webhook.is_active == True).all()
                 payload = {
                     "event": "import_completed",
