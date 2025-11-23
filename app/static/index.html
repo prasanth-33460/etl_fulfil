@@ -1,6 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <!-- 
+      NOTE: This dashboard uses in-browser Babel compilation for simplicity in this assignment.
+      For production, this should be replaced with a pre-compiled React bundle.
+    -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Product Importer Dashboard (React)</title>
@@ -48,7 +52,10 @@
     <script type="text/babel" data-presets="env,react">
         const { useState, useEffect, useCallback } = React;
 
-        const API_URL = ''; // Relative path
+        // API Base URL configuration
+        // Leave empty to use the current origin (relative paths)
+        // Or set to a full URL like "http://localhost:8000" if the API is hosted elsewhere
+        const API_URL = '';
 
         // --- Components ---
 
@@ -143,7 +150,7 @@
                         <div className="mt-4 p-4 bg-gray-50 rounded">
                             <div className="flex justify-between mb-2 text-sm text-gray-600">
                                 <span>Task ID: {taskId}</span>
-                                <span>{progress.details?.processed_rows || 0} / {progress.details?.total_bytes || '?'} records</span>
+                                <span>{progress.details?.processed_rows || 0} / {progress.details?.total_rows || '?'} records</span>
                             </div>
                             
                             <div className="progress-bar relative h-6 bg-gray-200 rounded-full overflow-hidden">

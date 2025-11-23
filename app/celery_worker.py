@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from .config import get_config
 from .database import SessionLocal
 from .models import Product, Webhook
+from .utils import validate_webhook_url
 import requests
 
 logging.basicConfig(
@@ -121,6 +122,7 @@ def process_csv_file(self, file_path: str):
                 }
                 for webhook in webhooks:
                     try:
+                        validate_webhook_url(webhook.url)
                         requests.post(webhook.url, json=payload, timeout=5)
                         logger.info(f"Webhook sent to {webhook.url}")
                     except Exception as w_err:
